@@ -10,7 +10,7 @@ export default function Agents() {
       <div>
         <h1 className="text-2xl font-bold text-surface-100">Agent Profiles</h1>
         <p className="text-surface-300 text-sm mt-1">
-          Deep-dive into each of the 12 AI market agents — their biases, strategies, and sectors
+          Deep-dive into each of the {AGENTS.length} AI market agents — their biases, strategies, and sectors
         </p>
       </div>
 
@@ -197,6 +197,7 @@ function getStrengths(agent) {
     'income-yield': ['Consistent income generation', 'Dividend sustainability analysis', 'Low volatility portfolio construction'],
     'emerging-mkts': ['Global macro perspective', 'Currency and EM-specific expertise', 'Diversification benefits'],
     'volatility-arb': ['Profits in any market regime', 'Tail risk hedging expertise', 'Options pricing edge'],
+    'price-action': ['Identifies breakouts and breakdowns before fundamentals confirm', 'Multi-timeframe analysis across daily, weekly, monthly', 'Disciplined risk management with clear stop-loss levels'],
   }
   return map[agent.id] || ['Specialized domain expertise', 'Data-driven analysis', 'Consistent methodology']
 }
@@ -215,6 +216,7 @@ function getWeaknesses(agent) {
     'income-yield': ['Misses growth opportunities', 'Interest rate sensitivity', 'May hold declining dividend payers too long'],
     'emerging-mkts': ['Dollar strength blind spot', 'Political risk hard to quantify', 'Liquidity risk in stress'],
     'volatility-arb': ['Can blow up if vol stays elevated', 'Complex strategies hard to unwind', 'Tail risk of selling too much premium'],
+    'price-action': ['Ignores fundamental catalysts that drive long-term value', 'Patterns can give false signals in choppy markets', 'Over-reliance on historical chart patterns'],
   }
   return map[agent.id] || ['May have sector-specific blind spots', 'Could miss cross-asset correlations', 'Limited by methodology constraints']
 }
@@ -280,6 +282,11 @@ function getBehaviors(agent) {
       { trigger: 'When VIX spikes above 30', reaction: 'Starts selling premium — puts, straddles, and VIX call spreads' },
       { trigger: 'When IV/RV ratio exceeds 1.5', reaction: 'Maximum premium selling mode — the market is overpaying for protection' },
       { trigger: 'When all agents agree', reaction: 'Gets nervous — consensus is the enemy of vol traders. Adds tail hedges' },
+    ],
+    'price-action': [
+      { trigger: 'When price breaks above key resistance on volume', reaction: 'Goes long immediately with stop below the breakout candle low' },
+      { trigger: 'When RSI diverges from price', reaction: 'Tightens stops and watches for reversal candlestick patterns' },
+      { trigger: 'When fundamental analysts disagree with the chart', reaction: 'Ignores fundamentals entirely — trusts the price action above all narratives' },
     ],
   }
   return map[agent.id] || [

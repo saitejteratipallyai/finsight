@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, Brain, FileText, Users, Activity } from 'lucide-react'
+import { AGENTS } from '../engine/agents'
 
 const links = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -53,7 +54,7 @@ export default function Sidebar() {
       <div className="px-4 py-4">
         <div className="flex items-center gap-2 px-2">
           <div className="w-1.5 h-1.5 rounded-full bg-success pulse-glow" />
-          <span className="text-[11px] text-surface-300">12 agents online</span>
+          <span className="text-[11px] text-surface-300">{AGENTS.length} agents online</span>
         </div>
       </div>
     </aside>

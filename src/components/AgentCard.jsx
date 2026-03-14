@@ -7,7 +7,7 @@ export default function AgentCard({ response, compact = false }) {
 
   const SentimentIcon = sentimentInfo.score > 0 ? TrendingUp : sentimentInfo.score < 0 ? TrendingDown : Minus
 
-  const agentNames = ['Marcus', 'Diana', 'Quinn', 'Max', 'Tara', 'Victor', 'Fiona', 'Geo', 'Riley', 'Irene', 'Elena', 'Vince']
+  const agentNames = ['Marcus', 'Diana', 'Quinn', 'Max', 'Tara', 'Victor', 'Fiona', 'Geo', 'Riley', 'Irene', 'Elena', 'Vince', 'Pete']
   const mentionsOthers = agentNames.some(name => name !== agent.name.split(' ')[0] && analysis?.includes(name))
 
   return (

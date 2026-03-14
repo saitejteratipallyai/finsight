@@ -74,6 +74,7 @@ function generateAgentResponse(agent, event, priorRound, allAgentsPrior, roundNu
   if (agent.id === 'fed-watcher' && isFedEvent) sentimentIndex = isBullishEvent ? 0 : 3;
   if (agent.id === 'doom-bear') sentimentIndex = Math.min(sentimentIndex + 1, 4);
   if (agent.id === 'geopolitical' && isBearishEvent) sentimentIndex = Math.min(sentimentIndex + 1, 4);
+  if (agent.id === 'price-action') sentimentIndex = 2 + (isBullishEvent ? -1 : isBearishEvent ? 1 : 0); // purely reactive to price action
 
   // === PERSUASION SYSTEM: Agents evaluate others' arguments ===
   let persuadedBy = null;
@@ -447,6 +448,24 @@ function generateAnalysisText(agent, event, sentiment, confidence, priorAgents, 
         `Vol explosion imminent and the mathematical setup is the most compelling I've seen since pre-COVID. ${shortEvent} is the catalyst and the market isn't hedged — fund managers' equity exposure is at the 95th percentile while VIX is at the 10th percentile. That mismatch has resolved violently every single time in the last 25 years. My vol regime model just flipped from "compressed" to "transitioning" — the next state is either "elevated" (VIX 25-35) or "crisis" (VIX 35+), and both are profitable for my current positioning. The trade: VIX call spreads (20/30 strikes at 60 DTE), SPX put ratios (short 1x 5% OTM, long 3x 10% OTM for a credit), and outright long 1-month strangles on SPY. Maximum potential return: 400% on the VIX calls if we get a true vol event. When fear arrives, it pays to be the one selling insurance at distressed premiums. Cash position at 40% — ready to deploy as a vol seller once VIX crosses 35.`,
       ],
     },
+    'price-action': {
+      'strong-bull': [
+        `The chart is screaming breakout. ${shortEvent} just triggered a clean break above the 200-day moving average with volume confirmation — 2.5x average volume on the breakout bar, which is textbook institutional accumulation. The weekly candle is a massive bullish engulfing pattern swallowing the last 3 weeks of indecision. Key Fibonacci extension targets: 1.618 at the next resistance cluster. The ADX is at 35 and rising, confirming trend strength — anything above 25 with a rising +DI is a green light for trend-followers. Support/resistance structure is clean: higher highs, higher lows on the daily, weekly, and monthly timeframes. Volume profile shows a high-volume node acting as a launchpad. I don't care about the "why" — the chart says buy, and I'm buying with a stop below the breakout candle's low. Target is 15-20% above current levels based on the measured move from the consolidation range.`,
+      ],
+      'bull': [
+        `Price action is constructive after ${shortEvent}. The daily chart shows a clean higher-low sequence with the 50-day MA crossing above the 200-day MA — a golden cross that has a 78% success rate in trending markets. Volume is confirming: up days are printing 1.5x the volume of down days, which is the hallmark of accumulation. The RSI is at 62, trending higher but not overbought — plenty of room to run before we hit 70+ extreme readings. Key level to watch: if we close above the prior swing high with conviction, the measured move projects another 8-12% of upside. The VWAP from the recent low is sloping upward and acting as dynamic support. I'm long with a stop below the most recent higher low — risk/reward is about 3:1 from here.`,
+        `Reading the tape post ${shortEvent}: buyers are in control. The market structure is bullish — we're seeing accumulation patterns on the order flow, large block trades coming through on the bid, and the bid-ask spread is tightening (a sign of increasing liquidity). The candlestick pattern on the daily is a series of bullish closing marubozu candles — strong closes near the high of the day for 4 consecutive sessions. The Ichimoku cloud has flipped bullish with price above the cloud, the conversion line above the base line, and the lagging span confirming. This is a multi-timeframe buy signal. Entering long with initial targets at the next round number resistance, stop below the Kijun-sen.`,
+      ],
+      'neutral': [
+        `The chart is at an inflection point after ${shortEvent} and I need to see resolution before committing. Price is sitting right at the 200-day moving average — the most-watched level in technical analysis — and volume is drying up, which means neither bulls nor bears have conviction. The daily chart shows a triangle/wedge formation that's been compressing for 3 weeks. The ADX is at 18 and falling, confirming no trend — this is a chop zone and you'll get chopped up trying to force a direction here. I'm watching for a decisive close above or below the triangle bounds with at least 1.5x average volume. Until then, I'm flat. The chart doesn't owe me a trade today — patience is the most underrated skill in technical analysis.`,
+      ],
+      'bear': [
+        `Bearish price structure developing after ${shortEvent}. The chart is making lower highs and lower lows on the daily timeframe — that's a downtrend by definition, and I don't argue with the trend. The 50-day MA just crossed below the 200-day MA — a death cross that, despite its reputation as a lagging indicator, has preceded every major decline of 20%+ in the last 30 years. Volume is expanding on down moves and contracting on bounces — distribution, not accumulation. The RSI has been rejected at 50 twice, confirming bearish momentum control. The head-and-shoulders pattern on the 4-hour chart projects a measured move 10% below current levels. I'm short with a stop above the right shoulder. Don't fight the tape.`,
+      ],
+      'strong-bear': [
+        `Complete technical breakdown. ${shortEvent} smashed through every support level on the chart like a hot knife through butter. We broke the 200-day MA, the rising trendline from the October lows, and the 61.8% Fibonacci retracement — all on massive volume. The weekly candle is a bearish engulfing pattern that swallowed the last 6 weeks of price action. The RSI has collapsed below 30 and is still falling with no divergence — no floor in sight. Volume profile shows an air pocket below current levels where there's no historical support for another 12-15%. The monthly chart is now confirming the breakdown with a bearish MACD crossover. This is a multi-timeframe sell signal across daily, weekly, and monthly charts — extremely rare and extremely bearish. Maximum short exposure with aggressive trailing stops on the upside. Next support is the prior cycle low, which is 20% below here.`,
+      ],
+    },
   };
 
   const agentAnalyses = analyses[agent.id] || {};
@@ -456,6 +475,30 @@ function generateAnalysisText(agent, event, sentiment, confidence, priorAgents, 
 
   const index = Math.floor(rng() * sentimentAnalyses.length);
   let text = sentimentAnalyses[index];
+
+  // === CRYPTO EVENT GUARDRAILS: non-crypto agents frame responses through their own lens ===
+  const isCryptoTopic = /bitcoin|btc|ethereum|eth\b|crypto|defi|blockchain|solana|sol\b|altcoin/i.test(event);
+  const cryptoAgents = ['crypto-max']; // agents that naturally speak crypto
+  if (isCryptoTopic && !cryptoAgents.includes(agent.id)) {
+    const cryptoFraming = {
+      'macro-bull': `I'm not a crypto specialist, but ${shortEvent} has clear macro implications. Risk appetite in crypto signals broader liquidity trends. What matters for equities: if crypto capital rotates back into stocks, we benefit. If it stays siloed, it's neutral. My focus remains on the macro setup — the Fed, employment, and GDP are what drive my portfolio, not token prices.`,
+      'doom-bear': `Crypto volatility after ${shortEvent} reinforces my thesis about speculative excess. When leveraged crypto positions unwind, it creates a contagion risk for broader risk assets. I've seen this before — remember the Luna/Terra collapse that dragged down traditional markets? I'm watching crypto stress as a canary in the coal mine for systemic risk, not as a direct trade.`,
+      'quant-algo': `My models don't have a strong edge in crypto-specific price action — the data history is too short and the regime changes too frequent. That said, ${shortEvent} is affecting cross-asset correlations. BTC-SPX 30-day correlation is at 0.45, which means crypto moves are bleeding into equity factor returns. I'm adjusting my equity portfolio beta accordingly, not trading crypto directly.`,
+      'tech-growth': `I view crypto through a technology adoption lens, not as a financial asset. ${shortEvent} matters because the underlying blockchain technology — smart contracts, tokenization, DeFi protocols — is driving real enterprise adoption. My portfolio exposure is through crypto-adjacent equities like COIN, MSTR, and semiconductor companies benefiting from mining demand, not through tokens directly.`,
+      'value-hunter': `Crypto has no free cash flow, no earnings, and no intrinsic value in my framework — it's pure speculation. ${shortEvent} doesn't change that assessment. However, I'm watching the second-order effects: if crypto pain forces selling of quality equities to cover margin calls, that creates buying opportunities for real businesses at better prices. That's where my focus is.`,
+      'fed-watcher': `${shortEvent} is relevant to me only in how it affects the Fed's thinking on financial stability and stablecoin regulation. The Fed is watching crypto leverage as a macro-prudential risk. If crypto volatility spills into Treasury markets or money market funds, that could accelerate or delay rate decisions. The crypto price itself is irrelevant to my analysis — the policy implications are what matter.`,
+      'geopolitical': `I track crypto through a sanctions and capital controls lens. ${shortEvent} highlights how digital assets are used to circumvent sanctions, fund illicit activity, and move capital across borders. From a geopolitical risk perspective, crypto volatility signals changing capital flow patterns — particularly out of China, Russia, and sanctioned economies. My trades remain in traditional assets.`,
+      'retail-pulse': `Retail sentiment on ${shortEvent} is absolutely wild right now. Reddit crypto subs are in full-on mania/panic mode (depending on the move), and the options flow on crypto-adjacent stocks like COIN and MSTR is showing extreme positioning. I track crypto sentiment as a leading indicator for broader retail risk appetite — when crypto traders get euphoric, it usually spills into meme stocks and weekly options within 48 hours.`,
+      'income-yield': `Crypto generates zero income and pays zero dividends — it's completely outside my investment framework. ${shortEvent} doesn't change my portfolio at all. The only income play in crypto I've ever seen is staking yields, and those come with principal risk that violates my core rules. I'll stick with my 4.5% yielding dividend portfolio and let the crypto traders have their excitement.`,
+      'emerging-mkts': `${shortEvent} matters for EM because crypto adoption is disproportionately concentrated in developing economies — Nigeria, India, Brazil, Turkey — where people use it as a hedge against currency devaluation. Crypto flows affect EM currency dynamics and capital account balances. I'm not trading crypto, but I'm watching Bitcoin's impact on EM capital flows and currency markets closely.`,
+      'volatility-arb': `The implied vol in crypto options after ${shortEvent} is fascinating from a volatility regime perspective. BTC 30-day IV is at 65-80% while equity IV is at 15% — that's a massive vol differential that creates cross-asset opportunities. I'm looking at COIN equity options as a cheaper proxy for crypto vol exposure, and watching for any vol contagion from crypto into equity and rates vol surfaces.`,
+      'price-action': `The chart on this crypto pair after ${shortEvent} is the only thing that matters — I don't care about the technology or the fundamentals. Looking at the candlestick structure, volume profile, and key support/resistance levels. Crypto charts are noisy but they respect technical levels better than most people think. My analysis is purely price-based: what do the candles say, where are the levels, and what's the risk/reward.`,
+    };
+    const framing = cryptoFraming[agent.id];
+    if (framing) {
+      text = framing;
+    }
+  }
 
   // Add reaction to other agents if past round 1 — make it a real debate
   if (priorAgents && priorAgents.length > 0 && roundNum > 1) {
@@ -518,6 +561,11 @@ function generateAnalysisText(agent, event, sentiment, confidence, priorAgents, 
       },
       'volatility-arb': {
         default: `${disagreeWith?.agent?.name || 'Their'} directional bet ignores what the vol surface is screaming. IV/RV ratio at ${myScore > 0 ? '0.85' : '1.4'}, skew at ${myScore > 0 ? 'flat' : 'steep'}, term structure ${myScore > 0 ? 'in contango' : 'inverting'}. ${myScore > 0 ? 'The market is over-hedged. Sell premium.' : 'Protection is cheap. Buy gamma before it reprices.'}`,
+      },
+      'price-action': {
+        'quant-algo': `${disagreeWith?.agent?.name || 'Quinn'}, your factor models are backwards-looking noise. The chart is forward-looking — price discounts everything your models are trying to capture, but faster. While you're waiting for your momentum z-score to confirm, the candle already broke out on volume 3 days ago.`,
+        'macro-bull': `${disagreeWith?.agent?.name || 'Marcus'}, GDP data is lagging garbage. By the time ISM prints, the chart has already priced it in. Price leads fundamentals — always has, always will. The daily candle structure says ${myScore > 0 ? 'buy' : 'sell'} regardless of your macro narrative.`,
+        default: `${disagreeWith?.agent?.name || 'Their'} fundamental analysis is irrelevant to what the chart is showing. Support/resistance, volume, and candle structure don't lie. The tape says ${myScore > 0 ? 'buyers are in control — higher highs, higher lows, expanding volume on up moves' : 'sellers are in control — lower highs, lower lows, distribution on every bounce'}. Trade what you see, not what you think.`,
       },
     };
 
@@ -603,6 +651,11 @@ function generateDataSources(agent, sentiment, rng) {
       { name: 'OptionMetrics IV Surface', metric: `30d IV/RV: ${(0.8 + rng() * 0.6).toFixed(2)}`, url: 'https://optionmetrics.com/data-products/', confidence: 85 },
       { name: 'CBOE Skew Index', metric: `SKEW: ${Math.round(120 + rng() * 30)}`, url: 'https://www.cboe.com/us/indices/dashboard/SKEW/', confidence: 93 },
     ],
+    'price-action': [
+      { name: 'TradingView Chart', metric: `RSI(14): ${(30 + rng() * 45).toFixed(1)}, ADX: ${(15 + rng() * 30).toFixed(1)}`, url: 'https://www.tradingview.com/chart/', confidence: 90 },
+      { name: 'StockCharts Breadth', metric: `${score > 0 ? '73' : '34'}% above 200-day MA, A/D line ${score > 0 ? 'new high' : 'diverging'}`, url: 'https://stockcharts.com/h-sc/ui?s=%24BPSPX', confidence: 88 },
+      { name: 'Finviz Heatmap', metric: `Volume ${score > 0 ? '1.8x avg on up days' : '2.1x avg on down days'}`, url: 'https://finviz.com/map.ashx', confidence: 85 },
+    ],
   };
 
   const agentSources = sources[agent.id] || [{ name: 'Market Data', metric: 'General analysis', url: '#' }];
@@ -625,6 +678,7 @@ function generateTradeIdeas(agent, sentiment, event, rng) {
     'income-yield': ['Add dividend aristocrats', 'Long SCHD', 'Add preferred shares'],
     'emerging-mkts': ['Long EEM', 'Long INDA (India)', 'Long Brazil ETF'],
     'volatility-arb': ['Sell SPX puts', 'Sell straddles', 'Short VIX futures'],
+    'price-action': ['Long breakout above resistance', 'Buy pullback to 50-day MA', 'Long golden cross setup'],
   };
 
   const bearTrades = {
@@ -640,6 +694,7 @@ function generateTradeIdeas(agent, sentiment, event, rng) {
     'income-yield': ['Rotate to Treasuries', 'Trim HY', 'Up quality'],
     'emerging-mkts': ['Short EEM', 'Long dollar', 'Close EM positions'],
     'volatility-arb': ['Long VIX calls', 'Buy put spreads', 'Long gamma'],
+    'price-action': ['Short breakdown below support', 'Short death cross setup', 'Fade failed breakout'],
   };
 
   const score = SENTIMENT_LEVELS[sentiment]?.score || 0;
@@ -956,7 +1011,7 @@ function generateBullCase(latestRound, event) {
     'Earnings growth trajectory supports current valuations',
   ];
   return {
-    probability: Math.round(30 + (bullAgents.length / 12) * 50),
+    probability: Math.round(30 + (bullAgents.length / AGENTS.length) * 50),
     targetMove: `+${(3 + Math.random() * 8).toFixed(1)}%`,
     timeframe: '3-6 months',
     keyPoints: keyPoints.slice(0, 3 + Math.floor(Math.random() * 2)),
@@ -974,7 +1029,7 @@ function generateBearCase(latestRound, event) {
     'Leading economic indicators showing signs of deceleration',
   ];
   return {
-    probability: Math.round(30 + (bearAgents.length / 12) * 50),
+    probability: Math.round(30 + (bearAgents.length / AGENTS.length) * 50),
     targetMove: `-${(5 + Math.random() * 12).toFixed(1)}%`,
     timeframe: '3-6 months',
     keyPoints: keyPoints.slice(0, 3 + Math.floor(Math.random() * 2)),
@@ -1089,7 +1144,7 @@ export function generateConsensusConclusion(allRounds, seedEvent, shocks) {
   let verdict, explanation, actionItems
   if (avg > 0.8) {
     verdict = 'STRONG BUY'
-    explanation = `After ${allRounds.length} rounds of debate, the panel reached a strong bullish consensus. ${bulls.length} of 12 agents are bullish, led by ${strongestBull?.agent.name || 'the majority'}. Even the bears acknowledged some merit in the bull case, though ${strongestBear?.agent.name || 'skeptics'} maintained hedging recommendations.`
+    explanation = `After ${allRounds.length} rounds of debate, the panel reached a strong bullish consensus. ${bulls.length} of ${AGENTS.length} agents are bullish, led by ${strongestBull?.agent.name || 'the majority'}. Even the bears acknowledged some merit in the bull case, though ${strongestBear?.agent.name || 'skeptics'} maintained hedging recommendations.`
     actionItems = ['Increase equity exposure', 'Add to momentum positions', 'Reduce cash allocation', 'Consider leveraged upside plays']
   } else if (avg > 0.3) {
     verdict = 'BUY'
@@ -1105,7 +1160,7 @@ export function generateConsensusConclusion(allRounds, seedEvent, shocks) {
     actionItems = ['Reduce equity exposure', 'Raise cash levels', 'Add defensive hedges', 'Rotate to quality and low-beta']
   } else {
     verdict = 'STRONG SELL'
-    explanation = `Near-unanimous bearish consensus. ${bears.length} of 12 agents recommend aggressive de-risking. ${strongestBear?.agent.name || 'The bears'} dominated the debate with ${strongestBull?.agent.name || 'even the bulls'} conceding significant downside risk. The panel agrees: capital preservation is the top priority.`
+    explanation = `Near-unanimous bearish consensus. ${bears.length} of ${AGENTS.length} agents recommend aggressive de-risking. ${strongestBear?.agent.name || 'The bears'} dominated the debate with ${strongestBull?.agent.name || 'even the bulls'} conceding significant downside risk. The panel agrees: capital preservation is the top priority.`
     actionItems = ['Significantly reduce exposure', 'Maximum cash position', 'Add put protection', 'Long volatility as insurance']
   }
 

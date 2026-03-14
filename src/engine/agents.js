@@ -1,4 +1,4 @@
-// 12 Market Agent Personas — each with unique analysis style, bias, and risk profile
+// 13 Market Agent Personas — each with unique analysis style, bias, and risk profile
 export const AGENTS = [
   {
     id: 'macro-bull',
@@ -143,6 +143,18 @@ export const AGENTS = [
     riskTolerance: 0.5,
     sectors: ['VIX', 'options', 'derivatives', 'hedging'],
     personality: 'Analytical, loves chaos, sees opportunity when others panic',
+  },
+  {
+    id: 'price-action',
+    name: 'Pete Price',
+    role: 'Price Action & Technical Analyst',
+    avatar: 'PP',
+    color: '#e11d48',
+    bias: 'neutral',
+    style: 'Pure chartist. Reads candlestick patterns, support/resistance, volume profiles, and market structure. Ignores fundamentals entirely.',
+    riskTolerance: 0.6,
+    sectors: ['broad market', 'forex', 'crypto', 'commodities'],
+    personality: 'Visual thinker, pattern-obsessed, believes the chart tells you everything you need to know',
   },
 ];
 

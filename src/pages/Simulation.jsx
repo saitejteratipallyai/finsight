@@ -134,7 +134,7 @@ export default function Simulation() {
 
       if (claudeMode && isClaudeEnabled()) {
         addLog('Each agent is searching the web for their specialty area...', 'system')
-        addLog('Querying Claude AI for all 12 agents (with live data + web research)...', 'system')
+        addLog(`Querying Claude AI for all ${AGENTS.length} agents (with live data + web research)...`, 'system')
         const model = localStorage.getItem('finsight_model') || 'claude-haiku-4-5-20251001'
         const result = await runClaudeSimulation(seedEvent, lastRound, nextRound, model, ticker, ctx)
         responses = result.responses.map(r => {
@@ -145,7 +145,7 @@ export default function Simulation() {
         // Log web search activity
         if (result.webSearchSummary) {
           const searched = result.webSearchSummary.filter(w => w.resultCount > 0).length
-          addLog(`${searched}/12 agents found web results for their research`, 'system')
+          addLog(`${searched}/${AGENTS.length} agents found web results for their research`, 'system')
         }
         // Update live context from server if returned
         if (result.liveContext) setLiveContext(result.liveContext)
@@ -154,7 +154,7 @@ export default function Simulation() {
         responses = runSimulationRound(seedEvent, rounds, nextRound, seed)
       }
 
-      // === ROOM SIMULATION: 12 analysts arguing in a war room (30s - 5min) ===
+      // === ROOM SIMULATION: analysts arguing in a war room (30s - 5min) ===
       const bullResponses = responses.filter(r => (SENTIMENT_LEVELS[r.sentiment]?.score || 0) > 0)
       const bearResponses = responses.filter(r => (SENTIMENT_LEVELS[r.sentiment]?.score || 0) < 0)
       const neutralResponses = responses.filter(r => (SENTIMENT_LEVELS[r.sentiment]?.score || 0) === 0)
@@ -181,7 +181,7 @@ export default function Simulation() {
       await rDelay(500, 1000)
       addLog(`[Moderator opens the floor. Topic: "${seedEvent.slice(0, 100)}${seedEvent.length > 100 ? '...' : ''}"]`, 'system')
       await rDelay(800, 1200)
-      addLog(`[12 analysts take their seats. Each has completed independent research. The debate begins.]`, 'system')
+      addLog(`[${AGENTS.length} analysts take their seats. Each has completed independent research. The debate begins.]`, 'system')
 
       // ── PHASE 2: Opening statements — each agent presents (staggered, ~3-4s per agent) ──
       for (let i = 0; i < shuffled.length; i++) {
@@ -528,7 +528,7 @@ export default function Simulation() {
       await rDelay(500, 1000)
       addLog(`[Breaking news hits the screens. The room goes silent...]`, 'system')
       await rDelay(1000, 1800)
-      addLog(`[12 analysts scramble to reassess their positions in light of the shock]`, 'system')
+      addLog(`[${AGENTS.length} analysts scramble to reassess their positions in light of the shock]`, 'system')
 
       // ── PHASE 1: Shock reactions — agents respond one by one ──
       for (let i = 0; i < shuffled.length; i++) {
@@ -730,7 +730,7 @@ export default function Simulation() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-surface-100">Simulation Arena</h1>
-          <p className="text-surface-300 text-sm mt-1">12 AI agents debate market events in real-time rounds</p>
+          <p className="text-surface-300 text-sm mt-1">{AGENTS.length} AI agents debate market events in real-time rounds</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -914,7 +914,7 @@ export default function Simulation() {
           ) : (
             <Play className="w-4 h-4" />
           )}
-          {isRunning ? (claudeMode ? 'Querying 12 agents...' : 'Running...') : `Run Round ${currentRound + 1}`}
+          {isRunning ? (claudeMode ? `Querying ${AGENTS.length} agents...` : 'Running...') : `Run Round ${currentRound + 1}`}
         </button>
 
         {rounds.length > 0 && (
@@ -1239,9 +1239,9 @@ export default function Simulation() {
                 <span className="text-warning">{conclusion.voteBreakdown.neutrals} Neutral</span>
               </div>
               <div className="w-full bg-surface-800 rounded-full h-3 flex overflow-hidden">
-                <div className="bg-success h-full" style={{ width: `${(conclusion.voteBreakdown.bulls / 12) * 100}%` }} />
-                <div className="bg-warning h-full" style={{ width: `${(conclusion.voteBreakdown.neutrals / 12) * 100}%` }} />
-                <div className="bg-danger h-full" style={{ width: `${(conclusion.voteBreakdown.bears / 12) * 100}%` }} />
+                <div className="bg-success h-full" style={{ width: `${(conclusion.voteBreakdown.bulls / AGENTS.length) * 100}%` }} />
+                <div className="bg-warning h-full" style={{ width: `${(conclusion.voteBreakdown.neutrals / AGENTS.length) * 100}%` }} />
+                <div className="bg-danger h-full" style={{ width: `${(conclusion.voteBreakdown.bears / AGENTS.length) * 100}%` }} />
               </div>
             </div>
           </div>
@@ -1319,7 +1319,7 @@ export default function Simulation() {
           <Brain className="w-16 h-16 text-surface-700 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-surface-100 mb-2">Ready to Simulate</h3>
           <p className="text-surface-300 max-w-md mx-auto mb-4">
-            Search for a stock above or enter a market event, then click "Run Round 1" to see 12 agents debate.
+            Search for a stock above or enter a market event, then click "Run Round 1" to see {AGENTS.length} agents debate.
             After 4 rounds, they reach a final consensus with a buy/sell/hold verdict.
           </p>
           <div className="flex justify-center gap-4 text-xs text-surface-300 mb-4">

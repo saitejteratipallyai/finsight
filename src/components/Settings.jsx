@@ -182,11 +182,11 @@ export default function Settings({ isOpen, onClose }) {
             <ul className="space-y-1.5 text-xs text-surface-300">
               <li className="flex items-start gap-2">
                 <Zap className="w-3 h-3 mt-0.5 text-warning shrink-0" />
-                Each of the 12 agents gets a unique system prompt matching their persona
+                Each of the 13 agents gets a unique system prompt matching their persona
               </li>
               <li className="flex items-start gap-2">
                 <Zap className="w-3 h-3 mt-0.5 text-warning shrink-0" />
-                All 12 agents are called in parallel for speed (~2-3 seconds per round)
+                All 13 agents are called in parallel for speed (~2-3 seconds per round)
               </li>
               <li className="flex items-start gap-2">
                 <Zap className="w-3 h-3 mt-0.5 text-warning shrink-0" />
