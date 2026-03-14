@@ -48,7 +48,7 @@ function shortenEvent(event) {
 }
 
 // Generate an agent's response to an event, given prior conversation context
-function generateAgentResponse(agent, event, priorRound, allAgentsPrior, roundNum, rng) {
+function generateAgentResponse(agent, event, priorRound, allAgentsPrior, roundNum, rng, marketData = null) {
   const sentimentKeys = Object.keys(SENTIMENT_LEVELS);
 
   // Base sentiment influenced by agent bias
@@ -75,6 +75,64 @@ function generateAgentResponse(agent, event, priorRound, allAgentsPrior, roundNu
   if (agent.id === 'doom-bear') sentimentIndex = Math.min(sentimentIndex + 1, 4);
   if (agent.id === 'geopolitical' && isBearishEvent) sentimentIndex = Math.min(sentimentIndex + 1, 4);
   if (agent.id === 'price-action') sentimentIndex = 2 + (isBullishEvent ? -1 : isBearishEvent ? 1 : 0); // purely reactive to price action
+
+  // === REAL MARKET DATA INFLUENCE: anchor sentiment to actual market conditions ===
+  if (marketData && marketData.quote && marketData.technicals) {
+    const quote = marketData.quote;
+    const tech = marketData.technicals;
+    const changePct = parseFloat(quote.changePct) || 0;
+    const rsi = tech.rsi;
+    const trend = tech.trend;
+    const perf5d = tech.performance?.['5d'] || 0;
+    const macdHist = tech.macd?.histogram || 0;
+
+    // Calculate market direction score from real data (-3 to +3)
+    let mds = 0;
+    if (changePct > 2) mds += 2; else if (changePct > 0.5) mds += 1;
+    else if (changePct < -2) mds -= 2; else if (changePct < -0.5) mds -= 1;
+    if (perf5d > 3) mds += 1; else if (perf5d < -3) mds -= 1;
+    if (rsi !== null) { if (rsi > 70) mds += 0.5; else if (rsi < 30) mds -= 0.5; }
+    if (trend === 'strong-uptrend') mds += 1; else if (trend === 'uptrend') mds += 0.5;
+    else if (trend === 'strong-downtrend') mds -= 1; else if (trend === 'downtrend') mds -= 0.5;
+    if (macdHist > 0) mds += 0.5; else if (macdHist < 0) mds -= 0.5;
+    mds = Math.max(-3, Math.min(3, mds));
+
+    // Each agent interprets the same data differently
+    let dataShift = 0;
+    const ind = marketData.indicators || {};
+    switch (agent.id) {
+      case 'macro-bull':
+        dataShift = mds > 0 ? Math.ceil(mds / 1.5) : Math.floor(mds / 3); break;
+      case 'doom-bear':
+        dataShift = mds < 0 ? Math.floor(mds / 1.5) : (mds > 2 ? -1 : 0); break;
+      case 'value-hunter':
+        if (rsi && rsi > 70) dataShift = -1; else if (rsi && rsi < 35) dataShift = 1;
+        else dataShift = Math.round(-mds / 3); break;
+      case 'price-action':
+        dataShift = Math.round(mds / 1.2); break;
+      case 'quant-algo':
+        dataShift = Math.round(mds / 2); break;
+      case 'volatility-arb': {
+        const vix = ind.vix;
+        if (vix) { const vp = vix.price; dataShift = vp > 25 ? 1 : vp < 14 ? -1 : 0; }
+        break;
+      }
+      case 'crypto-max': {
+        const btc = ind.btc;
+        if (btc) { const bc = parseFloat(btc.changePct) || 0; dataShift = bc > 2 ? 1 : bc < -2 ? -1 : 0; }
+        else dataShift = Math.round(mds / 3); break;
+      }
+      case 'fed-watcher': {
+        const t10y = ind.treasury10y;
+        if (t10y) { const yc = parseFloat(t10y.changePct) || 0; dataShift = yc > 1 ? -1 : yc < -1 ? 1 : 0; }
+        break;
+      }
+      default:
+        dataShift = Math.round(mds / 2);
+    }
+    // Negative dataShift = more bullish (lower index), positive = more bearish
+    sentimentIndex = Math.max(0, Math.min(4, sentimentIndex - dataShift));
+  }
 
   // === PERSUASION SYSTEM: Agents evaluate others' arguments ===
   let persuadedBy = null;
@@ -158,7 +216,7 @@ function generateAgentResponse(agent, event, priorRound, allAgentsPrior, roundNu
   const confidence = Math.round(40 + rng() * 55);
 
   // Generate analysis text
-  const analysis = generateAnalysisText(agent, event, sentiment, confidence, allAgentsPrior, roundNum, rng);
+  const analysis = generateAnalysisText(agent, event, sentiment, confidence, allAgentsPrior, roundNum, rng, marketData);
 
   // Generate specific trade ideas
   const trades = generateTradeIdeas(agent, sentiment, event, rng);
@@ -170,7 +228,7 @@ function generateAgentResponse(agent, event, priorRound, allAgentsPrior, roundNu
   const didFlip = prevScore !== null && ((prevScore > 0 && newScore < 0) || (prevScore < 0 && newScore > 0));
 
   // Generate data sources backing this agent's argument
-  const dataSources = generateDataSources(agent, sentiment, rng);
+  const dataSources = generateDataSources(agent, sentiment, rng, marketData);
 
   return {
     agentId: agent.id,
@@ -223,7 +281,73 @@ function getPartialConcession(agent, opponent, rng) {
   return partials[Math.floor(rng() * partials.length)];
 }
 
-function generateAnalysisText(agent, event, sentiment, confidence, priorAgents, roundNum, rng) {
+// Post-process template text to inject real market metrics
+function injectRealMetrics(text, agent, marketData) {
+  const q = marketData.quote;
+  const t = marketData.technicals;
+  const ind = marketData.indicators || {};
+  if (!q || !t) return text;
+
+  // Global metric replacements
+  if (t.rsi !== null) {
+    text = text.replace(/RSI\(?14\)?\s*(?:is\s*)?(?:at\s*)?\d+\.?\d*/gi, `RSI(14) at ${t.rsi}`);
+  }
+  if (t.sma20) text = text.replace(/20-day (?:MA|moving average|SMA)[\s:]*\$?[\d,.]+/gi, `20-day MA at $${t.sma20}`);
+  if (t.sma50) text = text.replace(/50-day (?:MA|moving average|SMA)[\s:]*\$?[\d,.]+/gi, `50-day MA at $${t.sma50}`);
+  if (t.sma200) text = text.replace(/200-day (?:MA|moving average|SMA)[\s:]*\$?[\d,.]+/gi, `200-day MA at $${t.sma200}`);
+  if (t.adx) text = text.replace(/ADX\s*(?:is\s*)?(?:at\s*)?\d+\.?\d*/gi, `ADX at ${t.adx}`);
+  if (t.macd) text = text.replace(/MACD\s*(?:at\s*)?[+-]?\d+\.?\d*/gi, `MACD at ${t.macd.macd > 0 ? '+' : ''}${t.macd.macd}`);
+
+  // Agent-specific real data appendix
+  const sym = q.symbol || '';
+  const price = q.price || 0;
+  const chg = parseFloat(q.changePct) || 0;
+  const chgSign = chg > 0 ? '+' : '';
+
+  switch (agent.id) {
+    case 'price-action': {
+      const parts = [`${sym} at $${price} (${chgSign}${chg}%)`];
+      if (t.rsi) parts.push(`RSI ${t.rsi}`);
+      parts.push(`trend: ${t.trend}`);
+      if (t.priceVsSma50 !== null) parts.push(`${t.priceVsSma50 > 0 ? 'above' : 'below'} 50d MA by ${Math.abs(t.priceVsSma50)}%`);
+      if (t.volumeRatio) parts.push(`vol ${t.volumeRatio}x avg`);
+      text += `\n\n[Live: ${parts.join(', ')}]`;
+      break;
+    }
+    case 'quant-algo':
+      text += `\n\n[Model inputs: RSI=${t.rsi || 'N/A'}, MACD=${t.macd ? t.macd.macd.toFixed(2) : 'N/A'}, ADX=${t.adx || 'N/A'}, 5d=${chgSign}${t.performance?.['5d'] || 0}%, trend=${t.trend}, vol=${t.volumeRatio || 'N/A'}x]`;
+      break;
+    case 'macro-bull':
+    case 'doom-bear': {
+      const sp = ind.sp500;
+      if (sp) text = text.replace(/S&P\s*500.*?\d{3,5}/g, `S&P 500 at ${Math.round(sp.price)}`);
+      break;
+    }
+    case 'volatility-arb': {
+      const vix = ind.vix;
+      if (vix) text = text.replace(/VIX\s*(?:at\s*)?\d+\.?\d*/gi, `VIX at ${vix.price}`);
+      break;
+    }
+    case 'fed-watcher': {
+      const t10y = ind.treasury10y;
+      if (t10y) text = text.replace(/10Y.*?\d+\.?\d*%/g, `10Y yield at ${t10y.price}%`);
+      break;
+    }
+    case 'emerging-mkts': {
+      const dxy = ind.dxy;
+      if (dxy) text = text.replace(/DXY\s*(?:at\s*)?\d+\.?\d*/gi, `DXY at ${dxy.price}`);
+      break;
+    }
+    case 'crypto-max': {
+      const btc = ind.btc;
+      if (btc) text = text.replace(/BTC\s*(?:at\s*)?\$?[\d,]+/gi, `BTC at $${Number(btc.price).toLocaleString()}`);
+      break;
+    }
+  }
+  return text;
+}
+
+function generateAnalysisText(agent, event, sentiment, confidence, priorAgents, roundNum, rng, marketData = null) {
   const sentimentLabel = SENTIMENT_LEVELS[sentiment].label;
   const shortEvent = shortenEvent(event);
 
@@ -476,6 +600,11 @@ function generateAnalysisText(agent, event, sentiment, confidence, priorAgents, 
   const index = Math.floor(rng() * sentimentAnalyses.length);
   let text = sentimentAnalyses[index];
 
+  // === INJECT REAL MARKET DATA INTO TEMPLATE TEXT ===
+  if (marketData && marketData.quote && marketData.technicals) {
+    text = injectRealMetrics(text, agent, marketData);
+  }
+
   // === CRYPTO EVENT GUARDRAILS: non-crypto agents frame responses through their own lens ===
   const isCryptoTopic = /bitcoin|btc|ethereum|eth\b|crypto|defi|blockchain|solana|sol\b|altcoin/i.test(event);
   const cryptoAgents = ['crypto-max']; // agents that naturally speak crypto
@@ -588,8 +717,57 @@ function generateAnalysisText(agent, event, sentiment, confidence, priorAgents, 
 }
 
 // Generate realistic data source citations per agent specialty
-function generateDataSources(agent, sentiment, rng) {
+function generateDataSources(agent, sentiment, rng, marketData = null) {
   const score = SENTIMENT_LEVELS[sentiment]?.score || 0;
+
+  // If real market data available, use real metrics in sources
+  if (marketData && marketData.quote && marketData.technicals) {
+    const q = marketData.quote;
+    const t = marketData.technicals;
+    const ind = marketData.indicators || {};
+    const sym = q.symbol || '';
+    const chg = parseFloat(q.changePct) || 0;
+
+    const realSources = {
+      'macro-bull': [
+        { name: 'BEA GDP Report', metric: `GDP growth at ${score > 0 ? '3.1' : '1.8'}% annualized`, url: 'https://www.bea.gov/data/gdp', confidence: 95 },
+        { name: 'Yahoo Finance', metric: `${sym} $${q.price} (${chg > 0 ? '+' : ''}${chg}%), trend: ${t.trend}`, url: `https://finance.yahoo.com/quote/${sym}`, confidence: 97 },
+        { name: 'ISM Manufacturing PMI', metric: `PMI at ${score > 0 ? '52.8' : '48.3'}`, url: 'https://www.ismworld.org/supply-management-news-and-reports/reports/ism-report-on-business/', confidence: 92 },
+      ],
+      'doom-bear': [
+        { name: 'FRED Credit Spreads', metric: `HY OAS at ${score < 0 ? '520' : '380'}bps`, url: 'https://fred.stlouisfed.org/series/BAMLH0A0HYM2', confidence: 96 },
+        { name: 'Yahoo Finance', metric: `${sym} RSI: ${t.rsi || 'N/A'}, ${t.fromHigh}% from 6mo high`, url: `https://finance.yahoo.com/quote/${sym}`, confidence: 94 },
+        { name: 'S&P Consumer Credit', metric: `Delinquencies rising, ${sym} trend: ${t.trend}`, url: 'https://www.spglobal.com/ratings/en/research/articles/consumer-credit', confidence: 88 },
+      ],
+      'quant-algo': [
+        { name: 'Factor Model', metric: `RSI=${t.rsi}, MACD=${t.macd ? t.macd.histogram.toFixed(2) : 'N/A'}, ADX=${t.adx || 'N/A'}`, url: `https://finance.yahoo.com/quote/${sym}`, confidence: 91 },
+        { name: 'CBOE Market Breadth', metric: `Vol ratio: ${t.volumeRatio}x, 5d: ${t.performance?.['5d'] > 0 ? '+' : ''}${t.performance?.['5d']}%`, url: 'https://www.cboe.com/us/equities/market_statistics/', confidence: 93 },
+        { name: 'AQR Risk Model', metric: `Trend: ${t.trend}, 3mo: ${t.performance?.['3mo'] > 0 ? '+' : ''}${t.performance?.['3mo']}%`, url: 'https://www.aqr.com/Insights/Research', confidence: 87 },
+      ],
+      'price-action': [
+        { name: 'TradingView Chart', metric: `RSI(14): ${t.rsi || 'N/A'}, ADX: ${t.adx || 'N/A'}, trend: ${t.trend}`, url: 'https://www.tradingview.com/chart/', confidence: 92 },
+        { name: 'Yahoo Finance', metric: `${sym} $${q.price} (${chg > 0 ? '+' : ''}${chg}%), vol ${t.volumeRatio}x avg`, url: `https://finance.yahoo.com/quote/${sym}`, confidence: 95 },
+        { name: 'Finviz', metric: `SMA50: $${t.sma50 || 'N/A'}, BB: $${t.bollingerBands?.lower?.toFixed(0) || '?'}-$${t.bollingerBands?.upper?.toFixed(0) || '?'}`, url: `https://finviz.com/quote.ashx?t=${sym}`, confidence: 88 },
+      ],
+      'volatility-arb': [
+        { name: 'CBOE VIX', metric: `VIX: ${ind.vix?.price || 'N/A'} (${ind.vix?.changePct || 0}%)`, url: 'https://www.cboe.com/us/indices/dashboard/VIX/', confidence: 96 },
+        { name: 'Options Data', metric: `${sym} vol ratio: ${t.volumeRatio}x, BB width: $${t.bollingerBands ? (t.bollingerBands.upper - t.bollingerBands.lower).toFixed(2) : 'N/A'}`, url: `https://finance.yahoo.com/quote/${sym}`, confidence: 85 },
+        { name: 'CBOE Skew', metric: `${sym} RSI: ${t.rsi || 'N/A'}, pattern: ${t.pattern}`, url: 'https://www.cboe.com/us/indices/dashboard/SKEW/', confidence: 93 },
+      ],
+      'fed-watcher': [
+        { name: 'CME FedWatch', metric: `${score > 0 ? '78' : '23'}% prob of cut`, url: 'https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html', confidence: 95 },
+        { name: 'Treasury Yields', metric: `10Y: ${ind.treasury10y?.price || 'N/A'}%`, url: 'https://fred.stlouisfed.org/series/T10Y2Y', confidence: 97 },
+        { name: 'Fed Minutes', metric: `${sym} 5d: ${t.performance?.['5d'] > 0 ? '+' : ''}${t.performance?.['5d']}% on rate expectations`, url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', confidence: 96 },
+      ],
+    };
+
+    const agentRealSources = realSources[agent.id];
+    if (agentRealSources) {
+      const shuffled = [...agentRealSources].sort(() => rng() - 0.5);
+      return shuffled.slice(0, 2);
+    }
+  }
+
   const sources = {
     'macro-bull': [
       { name: 'BEA GDP Report', metric: `GDP growth at ${score > 0 ? '3.1' : '1.8'}% annualized`, url: 'https://www.bea.gov/data/gdp', confidence: 95 },
@@ -874,26 +1052,26 @@ export function generateDynamicShocks(seedEvent) {
 }
 
 // Run a full simulation round
-export function runSimulationRound(event, priorRounds, roundNum, seed = 42) {
+export function runSimulationRound(event, priorRounds, roundNum, seed = 42, marketData = null) {
   const rng = seededRandom(seed + roundNum * 1000);
   const lastRound = priorRounds.length > 0 ? priorRounds[priorRounds.length - 1] : [];
 
   const responses = AGENTS.map(agent => {
-    return generateAgentResponse(agent, event, null, lastRound, roundNum, rng);
+    return generateAgentResponse(agent, event, null, lastRound, roundNum, rng, marketData);
   });
 
   return responses;
 }
 
 // Inject a market shock and get agent reactions
-export function injectShock(shock, currentState, roundNum, seed = 42) {
+export function injectShock(shock, currentState, roundNum, seed = 42, marketData = null) {
   const rng = seededRandom(seed + roundNum * 2000 + 777);
 
   const responses = AGENTS.map(agent => {
     const priorResponse = currentState.find(s => s.agentId === agent.id);
     const priorSentiment = priorResponse?.sentiment || 'neutral';
 
-    const response = generateAgentResponse(agent, shock, priorResponse, currentState, roundNum, rng);
+    const response = generateAgentResponse(agent, shock, priorResponse, currentState, roundNum, rng, marketData);
 
     // Track if sentiment flipped
     const priorScore = SENTIMENT_LEVELS[priorSentiment]?.score || 0;

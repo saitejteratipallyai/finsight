@@ -96,6 +96,143 @@ async function fetchMarketIndicators() {
   return indicators;
 }
 
+// ============ TECHNICAL INDICATOR CALCULATORS ============
+
+function calculateSMA(closes, period) {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+function calculateEMA(closes, period) {
+  if (closes.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < closes.length; i++) {
+    ema = closes[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+function calculateRSI(closes, period = 14) {
+  if (closes.length < period + 1) return null;
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) avgGain += diff;
+    else avgLoss += Math.abs(diff);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (diff < 0 ? Math.abs(diff) : 0)) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+function calculateMACD(closes, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+  if (closes.length < slowPeriod + signalPeriod) return null;
+  // Build full MACD line series
+  const macdSeries = [];
+  for (let i = slowPeriod; i <= closes.length; i++) {
+    const slice = closes.slice(0, i);
+    const fastEMA = calculateEMA(slice, fastPeriod);
+    const slowEMA = calculateEMA(slice, slowPeriod);
+    if (fastEMA !== null && slowEMA !== null) {
+      macdSeries.push(fastEMA - slowEMA);
+    }
+  }
+  if (macdSeries.length < signalPeriod) return null;
+  // Signal line is EMA of MACD series
+  const k = 2 / (signalPeriod + 1);
+  let signal = macdSeries.slice(0, signalPeriod).reduce((a, b) => a + b, 0) / signalPeriod;
+  for (let i = signalPeriod; i < macdSeries.length; i++) {
+    signal = macdSeries[i] * k + signal * (1 - k);
+  }
+  const macdLine = macdSeries[macdSeries.length - 1];
+  return { macd: macdLine, signal, histogram: macdLine - signal };
+}
+
+function calculateBollingerBands(closes, period = 20, multiplier = 2) {
+  if (closes.length < period) return null;
+  const sma = calculateSMA(closes, period);
+  const slice = closes.slice(-period);
+  const variance = slice.reduce((sum, val) => sum + Math.pow(val - sma, 2), 0) / period;
+  const stdDev = Math.sqrt(variance);
+  return { upper: sma + multiplier * stdDev, middle: sma, lower: sma - multiplier * stdDev };
+}
+
+function calculateADX(highs, lows, closes, period = 14) {
+  if (closes.length < period * 2) return null;
+  let plusDM = 0, minusDM = 0, tr = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const highDiff = highs[i] - highs[i - 1];
+    const lowDiff = lows[i - 1] - lows[i];
+    plusDM += (highDiff > lowDiff && highDiff > 0) ? highDiff : 0;
+    minusDM += (lowDiff > highDiff && lowDiff > 0) ? lowDiff : 0;
+    tr += Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1]));
+  }
+  if (tr === 0) return null;
+  const plusDI = (plusDM / tr) * 100;
+  const minusDI = (minusDM / tr) * 100;
+  const diSum = plusDI + minusDI;
+  if (diSum === 0) return null;
+  const dx = (Math.abs(plusDI - minusDI) / diSum) * 100;
+  return { adx: dx, plusDI, minusDI };
+}
+
+function detectTrend(closes, sma50, sma200) {
+  if (!closes || closes.length < 5) return 'unknown';
+  const currentPrice = closes[closes.length - 1];
+  if (sma50 && sma200) {
+    if (currentPrice > sma50 && sma50 > sma200) return 'strong-uptrend';
+    if (currentPrice > sma50 && currentPrice > sma200) return 'uptrend';
+    if (currentPrice < sma50 && sma50 < sma200) return 'strong-downtrend';
+    if (currentPrice < sma50 && currentPrice < sma200) return 'downtrend';
+  }
+  // Fallback: compare recent price action
+  const recent = closes.slice(-10);
+  const first = recent.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+  const last = recent.slice(-3).reduce((a, b) => a + b, 0) / 3;
+  const changePct = ((last - first) / first) * 100;
+  if (changePct > 5) return 'strong-uptrend';
+  if (changePct > 1.5) return 'uptrend';
+  if (changePct < -5) return 'strong-downtrend';
+  if (changePct < -1.5) return 'downtrend';
+  return 'sideways';
+}
+
+function detectPattern(closes, volumes) {
+  if (!closes || closes.length < 5) return 'none';
+  const last5 = closes.slice(-5);
+  const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / Math.min(20, volumes.length);
+  const lastVol = volumes[volumes.length - 1];
+  const volumeConfirm = lastVol > avgVol * 1.5;
+
+  if (last5[4] > last5[3] && last5[3] < last5[2] && last5[3] < last5[1]) {
+    return volumeConfirm ? 'bullish-reversal-confirmed' : 'bullish-reversal';
+  }
+  if (last5[4] < last5[3] && last5[3] > last5[2] && last5[3] > last5[1]) {
+    return volumeConfirm ? 'bearish-reversal-confirmed' : 'bearish-reversal';
+  }
+  return 'continuation';
+}
+
+// Simple 5-minute cache to avoid Yahoo rate limiting
+const marketDataCache = new Map();
+function getCachedOrFetch(key, fetchFn, ttlMs = 300000) {
+  const cached = marketDataCache.get(key);
+  if (cached && Date.now() - cached.ts < ttlMs) return Promise.resolve(cached.data);
+  return fetchFn().then(data => {
+    marketDataCache.set(key, { data, ts: Date.now() });
+    return data;
+  });
+}
+
 // Web search using DuckDuckGo HTML (no API key needed)
 async function webSearch(query, maxResults = 5) {
   try {
@@ -823,6 +960,92 @@ app.post('/api/web-search', async (req, res) => {
 });
 
 // Health check
+// Comprehensive market data with technical indicators (for deterministic simulation)
+app.get('/api/market-data-full', async (req, res) => {
+  const { symbol } = req.query;
+  if (!symbol) return res.status(400).json({ error: 'symbol query parameter is required' });
+
+  try {
+    const cacheKey = `${symbol}-${new Date().toISOString().split('T')[0]}`;
+    const result = await getCachedOrFetch(cacheKey, async () => {
+      const historyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=6mo`;
+      const [historyRes, quoteData, indicators, news] = await Promise.all([
+        fetch(historyUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (FinSight Market Analysis)' } }),
+        fetchStockQuote(symbol),
+        fetchMarketIndicators(),
+        fetchFinancialNews(symbol, 6),
+      ]);
+
+      let technicals = null;
+      if (historyRes.ok) {
+        const historyData = await historyRes.json();
+        const r = historyData.chart?.result?.[0];
+        if (r) {
+          const quotes = r.indicators?.quote?.[0] || {};
+          const closes = (quotes.close || []).filter(Boolean);
+          const highs = (quotes.high || []).filter(Boolean);
+          const lows = (quotes.low || []).filter(Boolean);
+          const volumes = (quotes.volume || []).filter(Boolean);
+
+          if (closes.length > 20) {
+            const sma20 = calculateSMA(closes, 20);
+            const sma50 = calculateSMA(closes, 50);
+            const sma200 = calculateSMA(closes, 200);
+            const rsi = calculateRSI(closes, 14);
+            const macd = calculateMACD(closes);
+            const bb = calculateBollingerBands(closes, 20);
+            const adxData = calculateADX(highs, lows, closes);
+            const trend = detectTrend(closes, sma50, sma200);
+            const pattern = detectPattern(closes, volumes);
+
+            const currentPrice = closes[closes.length - 1];
+            const price5dAgo = closes[Math.max(0, closes.length - 6)];
+            const price20dAgo = closes[Math.max(0, closes.length - 21)];
+            const price3moAgo = closes[Math.max(0, closes.length - 63)];
+            const avgVol20d = volumes.slice(-20).reduce((a, b) => a + b, 0) / Math.min(20, volumes.length);
+            const lastVol = volumes[volumes.length - 1];
+
+            technicals = {
+              sma20: sma20 ? +sma20.toFixed(2) : null,
+              sma50: sma50 ? +sma50.toFixed(2) : null,
+              sma200: sma200 ? +sma200.toFixed(2) : null,
+              ema12: calculateEMA(closes, 12) ? +(calculateEMA(closes, 12)).toFixed(2) : null,
+              ema26: calculateEMA(closes, 26) ? +(calculateEMA(closes, 26)).toFixed(2) : null,
+              rsi: rsi ? +rsi.toFixed(1) : null,
+              macd: macd ? { macd: +macd.macd.toFixed(3), signal: +macd.signal.toFixed(3), histogram: +macd.histogram.toFixed(3) } : null,
+              bollingerBands: bb ? { upper: +bb.upper.toFixed(2), middle: +bb.middle.toFixed(2), lower: +bb.lower.toFixed(2) } : null,
+              adx: adxData ? +adxData.adx.toFixed(1) : null,
+              plusDI: adxData ? +adxData.plusDI.toFixed(1) : null,
+              minusDI: adxData ? +adxData.minusDI.toFixed(1) : null,
+              trend,
+              pattern,
+              priceVsSma20: sma20 ? +((currentPrice / sma20 - 1) * 100).toFixed(2) : null,
+              priceVsSma50: sma50 ? +((currentPrice / sma50 - 1) * 100).toFixed(2) : null,
+              volumeRatio: avgVol20d > 0 ? +(lastVol / avgVol20d).toFixed(2) : null,
+              performance: {
+                '5d': +((currentPrice / price5dAgo - 1) * 100).toFixed(2),
+                '20d': +((currentPrice / price20dAgo - 1) * 100).toFixed(2),
+                '3mo': +((currentPrice / price3moAgo - 1) * 100).toFixed(2),
+              },
+              high6mo: +Math.max(...highs).toFixed(2),
+              low6mo: +Math.min(...lows).toFixed(2),
+              fromHigh: +(((currentPrice - Math.max(...highs)) / Math.max(...highs)) * 100).toFixed(2),
+              avgVolume20d: Math.round(avgVol20d),
+            };
+          }
+        }
+      }
+
+      return { symbol, quote: quoteData, technicals, indicators, news, fetchedAt: new Date().toISOString() };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Full market data error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', agents: Object.keys(AGENT_PROMPTS).length });
 });
@@ -851,6 +1074,7 @@ app.listen(PORT, () => {
   console.log(`  Endpoints:`);
   console.log(`    POST /api/simulate       — Run a simulation round (with live data + web search)`);
   console.log(`    GET  /api/market-context  — Fetch live market data, news, indicators`);
+  console.log(`    GET  /api/market-data-full — Full market data with technical indicators`);
   console.log(`    POST /api/web-search      — Agent web search`);
   console.log(`    POST /api/validate-key    — Validate API key`);
   console.log(`    GET  /api/health          — Health check\n`);

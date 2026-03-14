@@ -4,7 +4,7 @@ import { Play, Zap, FileText, RotateCcw, ChevronDown, ChevronUp, AlertTriangle, 
 import { AGENTS, SENTIMENT_LEVELS } from '../engine/agents'
 import { runSimulationRound, injectShock, generateReport, generateDebateExchanges, generateConsensusConclusion, generateDynamicShocks } from '../engine/simulation'
 import { SEED_EVENTS } from '../data/marketData'
-import { isClaudeEnabled, runClaudeSimulation, checkBackendHealth, fetchMarketContext } from '../engine/claudeApi'
+import { isClaudeEnabled, runClaudeSimulation, checkBackendHealth, fetchMarketContext, fetchFullMarketData } from '../engine/claudeApi'
 import AgentCard from '../components/AgentCard'
 import SentimentGauge from '../components/SentimentGauge'
 import Settings from '../components/Settings'
@@ -44,6 +44,7 @@ export default function Simulation() {
   const [selectedRoundIdx, setSelectedRoundIdx] = useState(-1) // -1 = latest
   const [liveContext, setLiveContext] = useState(null)
   const [fetchingContext, setFetchingContext] = useState(false)
+  const [fullMarketData, setFullMarketData] = useState(null)
   const logEndRef = useRef(null)
   const logContainerRef = useRef(null)
 
@@ -87,8 +88,16 @@ export default function Simulation() {
 
   // Extract ticker from seed event
   const extractTicker = (text) => {
-    const match = text.match(/\b([A-Z]{1,5}(?:-USD)?)\b/)
-    return match ? match[1] : null
+    // First try "invest in XXX" pattern
+    const investMatch = text.match(/invest in ([A-Z]{1,5}(?:-USD)?)\b/i)
+    if (investMatch) return investMatch[1].toUpperCase()
+    // Then try "Analyze XXX" pattern
+    const analyzeMatch = text.match(/analyze ([A-Z]{1,5}(?:-USD)?)\b/i)
+    if (analyzeMatch) return analyzeMatch[1].toUpperCase()
+    // Fallback: find uppercase tickers (2+ chars, skip common English words)
+    const skipWords = new Set(['THE', 'AND', 'FOR', 'WITH', 'NOT', 'BUT', 'ARE', 'HAS', 'WAS', 'CAN', 'MAY', 'ALL', 'NEW', 'NOW', 'GDP', 'CPI', 'FED', 'IPO', 'CEO', 'AI'])
+    const matches = text.match(/\b[A-Z]{2,5}(?:-USD)?\b/g) || []
+    return matches.find(m => !skipWords.has(m)) || null
   }
 
   // Fetch live market context
@@ -151,7 +160,29 @@ export default function Simulation() {
         if (result.liveContext) setLiveContext(result.liveContext)
       } else {
         const seed = seedEvent.length + nextRound + Date.now()
-        responses = runSimulationRound(seedEvent, rounds, nextRound, seed)
+
+        // Fetch real market data for deterministic mode (if backend is running)
+        let mktData = fullMarketData
+        if (!mktData && backendUp) {
+          const tickerSymbol = ticker || extractTicker(seedEvent)
+          if (tickerSymbol) {
+            addLog(`Fetching real market data for ${tickerSymbol}...`, 'system')
+            mktData = await fetchFullMarketData(tickerSymbol)
+            if (mktData && mktData.quote) {
+              setFullMarketData(mktData)
+              const q = mktData.quote
+              const t = mktData.technicals
+              const chg = parseFloat(q.changePct) || 0
+              addLog(`Real data loaded: ${q.symbol} $${q.price} (${chg > 0 ? '+' : ''}${chg}%), RSI: ${t?.rsi || 'N/A'}, Trend: ${t?.trend || 'N/A'}`, 'system')
+              // Also populate liveContext for display
+              setLiveContext({ ticker: q, indicators: mktData.indicators, news: mktData.news, technicals: t, fetchedAt: mktData.fetchedAt })
+            } else {
+              addLog('Market data unavailable, using simulated analysis', 'warning')
+            }
+          }
+        }
+
+        responses = runSimulationRound(seedEvent, rounds, nextRound, seed, mktData)
       }
 
       // === ROOM SIMULATION: analysts arguing in a war room (30s - 5min) ===
@@ -506,7 +537,7 @@ export default function Simulation() {
         })
         setTokenCount(prev => prev + (result.totalTokens || 0))
       } else {
-        responses = injectShock(selectedShock, lastRound, nextRound, seedEvent.length + Date.now())
+        responses = injectShock(selectedShock, lastRound, nextRound, seedEvent.length + Date.now(), fullMarketData)
       }
 
       // === LIVE ACTIVITY FEED for shock reaction (staggered like runRound) ===
@@ -639,7 +670,7 @@ export default function Simulation() {
     } catch (err) {
       console.error('Shock error:', err)
       addLog(`Error: ${err.message}`, 'error')
-      const responses = injectShock(selectedShock, lastRound, nextRound, seedEvent.length + Date.now())
+      const responses = injectShock(selectedShock, lastRound, nextRound, seedEvent.length + Date.now(), fullMarketData)
       const allRounds = [...rounds, responses]
       setRounds(prev => [...prev, responses])
       setShocks(prev => [...prev, { shock: selectedShock, round: nextRound }])
@@ -668,6 +699,7 @@ export default function Simulation() {
     setShowEventSetup(true)
     setSelectedRoundIdx(-1)
     setLiveContext(null)
+    setFullMarketData(null)
   }
 
   const viewIdx = selectedRoundIdx === -1 ? rounds.length - 1 : selectedRoundIdx

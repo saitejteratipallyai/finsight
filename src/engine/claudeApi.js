@@ -74,6 +74,19 @@ export async function fetchMarketContext(ticker, query) {
   }
 }
 
+// Fetch comprehensive market data with technical indicators (for deterministic mode)
+export async function fetchFullMarketData(symbol) {
+  try {
+    const res = await fetch(`${API_BASE}/market-data-full?symbol=${encodeURIComponent(symbol)}`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 // Check if backend server is running
 export async function checkBackendHealth() {
   try {
